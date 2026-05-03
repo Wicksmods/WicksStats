@@ -497,23 +497,23 @@ local function buildPanel()
         panel:Hide()
     end)
 
-    -- Options (gear) button
+    -- Options (gear) button -- uses Blizzard's gear texture, vertex-tinted
     local optBtn = CreateFrame("Button", nil, title)
     optBtn:SetSize(22, TITLE_H)
     optBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
-    local optGlyph = optBtn:CreateFontString(nil, "OVERLAY")
-    optGlyph:SetFont("Fonts\\FRIZQT__.TTF", 13, "")
-    optGlyph:SetPoint("CENTER")
-    optGlyph:SetText("≡")
-    optGlyph:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+    local optGear = optBtn:CreateTexture(nil, "OVERLAY")
+    optGear:SetTexture("Interface\\Buttons\\UI-OptionsButton")
+    optGear:SetSize(14, 14)
+    optGear:SetPoint("CENTER")
+    optGear:SetVertexColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
     optBtn:SetScript("OnEnter", function()
-        optGlyph:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+        optGear:SetVertexColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
         GameTooltip:SetOwner(optBtn, "ANCHOR_BOTTOMLEFT")
         GameTooltip:AddLine("Buff tracking options", 1, 1, 1)
         GameTooltip:Show()
     end)
     optBtn:SetScript("OnLeave", function()
-        optGlyph:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+        optGear:SetVertexColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
         GameTooltip:Hide()
     end)
     optBtn:SetScript("OnClick", function()
@@ -793,6 +793,45 @@ end
 -- options window: per-buff enable/disable
 -- ============================================================
 local optionsFrame
+local optionsRefreshList = {}  -- registered checkbox refresh callbacks
+
+local function refreshAllOptionsCheckboxes()
+    for _, fn in ipairs(optionsRefreshList) do fn() end
+end
+
+local function CreateMiniButton(parent, label, onClick)
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetHeight(ROW_H)
+    local txt = NewText(btn, 9, C_GREEN)
+    txt:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    txt:SetText(label)
+    btn:SetWidth(txt:GetStringWidth() + 16)
+
+    local bg = NewTexture(btn, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(C_HEADER_BG[1], C_HEADER_BG[2], C_HEADER_BG[3], 1)
+
+    -- 1px fel-green border
+    local function edge(p1, p2, w, h)
+        local t = btn:CreateTexture(nil, "BORDER")
+        t:SetColorTexture(C_GREEN[1], C_GREEN[2], C_GREEN[3], 0.6)
+        t:SetPoint(p1); t:SetPoint(p2)
+        if w then t:SetWidth(w) end; if h then t:SetHeight(h) end
+    end
+    edge("TOPLEFT","TOPRIGHT", nil, 1)
+    edge("BOTTOMLEFT","BOTTOMRIGHT", nil, 1)
+    edge("TOPLEFT","BOTTOMLEFT", 1, nil)
+    edge("TOPRIGHT","BOTTOMRIGHT", 1, nil)
+
+    btn:SetScript("OnEnter", function()
+        bg:SetColorTexture(C_GREEN[1], C_GREEN[2], C_GREEN[3], 0.20)
+    end)
+    btn:SetScript("OnLeave", function()
+        bg:SetColorTexture(C_HEADER_BG[1], C_HEADER_BG[2], C_HEADER_BG[3], 1)
+    end)
+    btn:SetScript("OnClick", onClick)
+    return btn
+end
 
 local function CreateOptionsCheckbox(parent, label, isCheckedFn, onToggle)
     local row = CreateFrame("Frame", nil, parent)
@@ -832,6 +871,7 @@ local function CreateOptionsCheckbox(parent, label, isCheckedFn, onToggle)
         end
     end
     refresh()
+    table.insert(optionsRefreshList, refresh)
 
     row:SetScript("OnEnter", function() SetRGBA(hover, C_ROW_HOVER) end)
     row:SetScript("OnLeave", function() hover:SetColorTexture(0, 0, 0, 0) end)
@@ -852,6 +892,7 @@ local function buildOptionsWindow()
     local f = CreateFrame("Frame", "WicksStatsOptionsFrame", UIParent)
     f:SetFrameStrata("HIGH")
     f:SetClampedToScreen(true)
+    f:SetMovable(true)
     f:SetWidth(OPT_W)
     f:Hide()
 
@@ -860,11 +901,19 @@ local function buildOptionsWindow()
     AddBorder(f, C_BORDER)
     AddCornerAccents(f)
 
-    -- Title strip
+    -- Title strip (also drag handle)
     local title = CreateFrame("Frame", nil, f)
     title:SetPoint("TOPLEFT",  f, "TOPLEFT",  1, -1)
     title:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
     title:SetHeight(TITLE_H)
+    title:EnableMouse(true)
+    title:RegisterForDrag("LeftButton")
+    title:SetScript("OnDragStart", function() f:StartMoving() end)
+    title:SetScript("OnDragStop", function()
+        f:StopMovingOrSizing()
+        local point, _, relPoint, x, y = f:GetPoint(1)
+        WicksStatsSettings.optionsPos = { point = point, relPoint = relPoint, x = x, y = y }
+    end)
     NewTexture(title, "BACKGROUND", C_HEADER_BG):SetAllPoints()
 
     local tApo = NewText(title, 12, C_GREEN)
@@ -901,6 +950,38 @@ local function buildOptionsWindow()
     end
 
     local cursor = -(TITLE_H + 4)
+
+    -- Bulk-action row
+    cursor = cursor - SECTION_GAP
+    do
+        local row = CreateFrame("Frame", nil, f)
+        row:SetHeight(ROW_H + 4)
+        row:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+        row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+
+        local b1 = CreateMiniButton(row, "Match current", function()
+            WS:MatchEnabledToCurrent()
+            refreshAllOptionsCheckboxes()
+            WS.dirty = true
+        end)
+        b1:SetPoint("LEFT", row, "LEFT", 0, 0)
+
+        local b2 = CreateMiniButton(row, "Enable all", function()
+            WS:SetAllBuffsEnabled(true)
+            refreshAllOptionsCheckboxes()
+            WS.dirty = true
+        end)
+        b2:SetPoint("LEFT", b1, "RIGHT", 6, 0)
+
+        local b3 = CreateMiniButton(row, "Clear all", function()
+            WS:SetAllBuffsEnabled(false)
+            refreshAllOptionsCheckboxes()
+            WS.dirty = true
+        end)
+        b3:SetPoint("LEFT", b2, "RIGHT", 6, 0)
+
+        cursor = cursor - ROW_H - 6
+    end
 
     -- "Simulate raid buffs" master toggle (above category list)
     cursor = cursor - SECTION_GAP
@@ -972,15 +1053,16 @@ function WS:ToggleOptions()
     local f = buildOptionsWindow()
     if f:IsShown() then
         f:Hide()
-    else
-        f:ClearAllPoints()
-        if panel and panel:IsShown() then
-            f:SetPoint("TOPLEFT", panel, "TOPRIGHT", 6, 0)
-        else
-            f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
-        f:Show()
+        return
     end
+    f:ClearAllPoints()
+    local pos = WicksStatsSettings and WicksStatsSettings.optionsPos
+    if pos and pos.point then
+        f:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    else
+        f:SetPoint("CENTER", UIParent, "CENTER", 240, 0)
+    end
+    f:Show()
 end
 
 -- ============================================================

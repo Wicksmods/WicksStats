@@ -210,6 +210,13 @@ f:SetScript("OnEvent", function(self, event, arg1)
         if WS.OnLogin then WS:OnLogin() end
         return
     end
+    if event == "PLAYER_ENTERING_WORLD" then
+        -- First run: seed buffsEnabled from currently-active buffs
+        if WicksStatsSettings and not WicksStatsSettings._buffsSeeded then
+            if WS.MatchEnabledToCurrent then WS:MatchEnabledToCurrent() end
+            WicksStatsSettings._buffsSeeded = true
+        end
+    end
     -- Unit-scoped events: ignore non-player units
     if arg1 and type(arg1) == "string" and arg1 ~= "player" then
         if event:sub(1,5) == "UNIT_" then return end

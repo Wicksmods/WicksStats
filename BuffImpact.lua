@@ -67,20 +67,47 @@ WS.BUFFS = {
     { name = "Misery",                    category = "Debuffs", gains = { sp_target_pct = 5 } },
 }
 
+-- Buffs are opt-in: default OFF. Only buffs in WicksStatsSettings.buffsEnabled
+-- with a true value are tracked.
 function WS:IsBuffEnabled(name)
-    if not WicksStatsSettings then return true end
-    local d = WicksStatsSettings.buffsDisabled
-    if not d then return true end
-    return not d[name]
+    if not WicksStatsSettings or not WicksStatsSettings.buffsEnabled then return false end
+    return WicksStatsSettings.buffsEnabled[name] == true
 end
 
 function WS:SetBuffEnabled(name, enabled)
     WicksStatsSettings = WicksStatsSettings or {}
-    WicksStatsSettings.buffsDisabled = WicksStatsSettings.buffsDisabled or {}
+    WicksStatsSettings.buffsEnabled = WicksStatsSettings.buffsEnabled or {}
     if enabled then
-        WicksStatsSettings.buffsDisabled[name] = nil
+        WicksStatsSettings.buffsEnabled[name] = true
     else
-        WicksStatsSettings.buffsDisabled[name] = true
+        WicksStatsSettings.buffsEnabled[name] = nil
+    end
+end
+
+function WS:SetAllBuffsEnabled(enabled)
+    WicksStatsSettings = WicksStatsSettings or {}
+    WicksStatsSettings.buffsEnabled = WicksStatsSettings.buffsEnabled or {}
+    if enabled then
+        for _, b in ipairs(WS.BUFFS) do
+            WicksStatsSettings.buffsEnabled[b.name] = true
+        end
+    else
+        WicksStatsSettings.buffsEnabled = {}
+    end
+end
+
+-- Snapshot currently-active buffs into the enabled list (replaces previous)
+function WS:MatchEnabledToCurrent()
+    WicksStatsSettings = WicksStatsSettings or {}
+    WicksStatsSettings.buffsEnabled = {}
+    local known = {}
+    for _, b in ipairs(WS.BUFFS) do known[b.name] = true end
+    for i = 1, 40 do
+        local name = UnitBuff("player", i)
+        if not name then break end
+        if known[name] then
+            WicksStatsSettings.buffsEnabled[name] = true
+        end
     end
 end
 

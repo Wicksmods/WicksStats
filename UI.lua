@@ -497,6 +497,29 @@ local function buildPanel()
         panel:Hide()
     end)
 
+    -- Options (gear) button
+    local optBtn = CreateFrame("Button", nil, title)
+    optBtn:SetSize(22, TITLE_H)
+    optBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
+    local optGlyph = optBtn:CreateFontString(nil, "OVERLAY")
+    optGlyph:SetFont("Fonts\\FRIZQT__.TTF", 13, "")
+    optGlyph:SetPoint("CENTER")
+    optGlyph:SetText("≡")
+    optGlyph:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+    optBtn:SetScript("OnEnter", function()
+        optGlyph:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+        GameTooltip:SetOwner(optBtn, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine("Buff tracking options", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    optBtn:SetScript("OnLeave", function()
+        optGlyph:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+        GameTooltip:Hide()
+    end)
+    optBtn:SetScript("OnClick", function()
+        if WS.ToggleOptions then WS:ToggleOptions() end
+    end)
+
     local subText = NewText(title, 9, C_TEXT_DIM)
     subText:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
     subText:SetText(UnitName("player") or "")
@@ -752,6 +775,165 @@ function WS:Render()
                 end
             end
         end
+    end
+end
+
+-- ============================================================
+-- options window: per-buff enable/disable
+-- ============================================================
+local optionsFrame
+
+local function CreateOptionsCheckbox(parent, label, isCheckedFn, onToggle)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(ROW_H)
+    row:EnableMouse(true)
+
+    local hover = NewTexture(row, "BACKGROUND")
+    hover:SetAllPoints()
+    hover:SetColorTexture(0, 0, 0, 0)
+
+    -- Box: outer fel-green border + inner C_BG with check on top
+    local cb = CreateFrame("Frame", nil, row)
+    cb:SetSize(11, 11)
+    cb:SetPoint("LEFT", row, "LEFT", 6, 0)
+    local cbBorder = NewTexture(cb, "BACKGROUND")
+    cbBorder:SetAllPoints()
+    cbBorder:SetColorTexture(C_BORDER[1], C_BORDER[2], C_BORDER[3], 1)
+    local cbInner = NewTexture(cb, "BORDER")
+    cbInner:SetPoint("TOPLEFT", cb, "TOPLEFT", 1, -1)
+    cbInner:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", -1, 1)
+    cbInner:SetColorTexture(C_BG[1], C_BG[2], C_BG[3], 1)
+    local cbCheck = NewTexture(cb, "OVERLAY")
+    cbCheck:SetPoint("TOPLEFT", cb, "TOPLEFT", 2, -2)
+    cbCheck:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", -2, 2)
+    cbCheck:SetColorTexture(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+
+    local lbl = NewText(row, 10, C_TEXT_NORMAL)
+    lbl:SetPoint("LEFT", cb, "RIGHT", 6, 0)
+    lbl:SetText(label)
+
+    local function refresh()
+        if isCheckedFn() then cbCheck:Show() else cbCheck:Hide() end
+        if isCheckedFn() then
+            lbl:SetTextColor(C_TEXT_NORMAL[1], C_TEXT_NORMAL[2], C_TEXT_NORMAL[3], 1)
+        else
+            lbl:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+        end
+    end
+    refresh()
+
+    row:SetScript("OnEnter", function() SetRGBA(hover, C_ROW_HOVER) end)
+    row:SetScript("OnLeave", function() hover:SetColorTexture(0, 0, 0, 0) end)
+    row:SetScript("OnMouseUp", function(_, button)
+        if button == "LeftButton" then
+            onToggle()
+            refresh()
+        end
+    end)
+
+    return row
+end
+
+local function buildOptionsWindow()
+    if optionsFrame then return optionsFrame end
+
+    local OPT_W = 280
+    local f = CreateFrame("Frame", "WicksStatsOptionsFrame", UIParent)
+    f:SetFrameStrata("HIGH")
+    f:SetClampedToScreen(true)
+    f:SetWidth(OPT_W)
+    f:Hide()
+
+    local bg = NewTexture(f, "BACKGROUND", C_BG)
+    bg:SetAllPoints()
+    AddBorder(f, C_BORDER)
+    AddCornerAccents(f)
+
+    -- Title strip
+    local title = CreateFrame("Frame", nil, f)
+    title:SetPoint("TOPLEFT",  f, "TOPLEFT",  1, -1)
+    title:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
+    title:SetHeight(TITLE_H)
+    NewTexture(title, "BACKGROUND", C_HEADER_BG):SetAllPoints()
+
+    local tApo = NewText(title, 12, C_GREEN)
+    tApo:SetPoint("LEFT", title, "LEFT", 10, 0)
+    tApo:SetText("Wick's")
+    local tName = NewText(title, 12, C_TEXT_NORMAL)
+    tName:SetPoint("LEFT", tApo, "RIGHT", 4, 0)
+    tName:SetText("Stats / Buffs")
+
+    local closeBtn = CreateFrame("Button", nil, title)
+    closeBtn:SetSize(22, TITLE_H)
+    closeBtn:SetPoint("RIGHT", title, "RIGHT", -2, 0)
+    local closeX = closeBtn:CreateFontString(nil, "OVERLAY")
+    closeX:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+    closeX:SetPoint("CENTER")
+    closeX:SetText("×")
+    closeX:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+    closeBtn:SetScript("OnEnter", function()
+        closeX:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+    end)
+    closeBtn:SetScript("OnLeave", function()
+        closeX:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+    end)
+    closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+    -- Body: group buffs by category
+    local categories, byCat = {}, {}
+    for _, b in ipairs(WS.BUFFS or {}) do
+        if not byCat[b.category] then
+            byCat[b.category] = {}
+            table.insert(categories, b.category)
+        end
+        table.insert(byCat[b.category], b)
+    end
+
+    local cursor = -(TITLE_H + 4)
+    for _, cat in ipairs(categories) do
+        cursor = cursor - SECTION_GAP
+
+        local h = CreateFrame("Frame", nil, f)
+        h:SetHeight(SECTION_H)
+        h:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+        h:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        NewTexture(h, "BACKGROUND", C_HEADER_BG):SetAllPoints()
+        local lbl = NewText(h, 10, C_GREEN)
+        lbl:SetPoint("LEFT", h, "LEFT", 8, 0)
+        lbl:SetText(cat:upper())
+        cursor = cursor - SECTION_H - 2
+
+        for _, b in ipairs(byCat[cat]) do
+            local buffName = b.name
+            local row = CreateOptionsCheckbox(f, buffName,
+                function() return WS:IsBuffEnabled(buffName) end,
+                function()
+                    WS:SetBuffEnabled(buffName, not WS:IsBuffEnabled(buffName))
+                    WS.dirty = true
+                end)
+            row:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+            row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+            cursor = cursor - ROW_H
+        end
+    end
+
+    f:SetHeight(math.abs(cursor) + PADDING)
+    optionsFrame = f
+    return f
+end
+
+function WS:ToggleOptions()
+    local f = buildOptionsWindow()
+    if f:IsShown() then
+        f:Hide()
+    else
+        f:ClearAllPoints()
+        if panel and panel:IsShown() then
+            f:SetPoint("TOPLEFT", panel, "TOPRIGHT", 6, 0)
+        else
+            f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        end
+        f:Show()
     end
 end
 

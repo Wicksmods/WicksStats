@@ -101,6 +101,22 @@ end
 -- ============================================================
 -- weights: row-key -> weight-table-key mapping + active weights cache
 -- ============================================================
+-- Row key -> stats[key] for live-diff lookup. Not every row has a stable
+-- single-field source (e.g. spMax is computed from 6 school SPs); skip those.
+local ROW_TO_STAT_KEY = {
+    str = "str", agi = "agi", sta = "sta", int = "int", spi = "spi",
+    hp  = "hp",  mp  = "mp",
+    ap  = "ap",  crit = "crit", hitMelee = "hitMelee",
+    expertise = "expertise", haste = "haste",
+    rap = "rap", rcrit = "rcrit", rhit = "rhit", rhaste = "rhaste",
+    healing = "healing", scrit = "scrit", shit = "shit",
+    shaste = "shaste", spen = "spen",
+    armor = "armor", defense = "defense",
+    dodge = "dodge", parry = "parry", block = "block",
+    blockValue = "blockValue", resilience = "resilienceRating",
+    mp5out = "mp5out", mp5in = "mp5in",
+}
+
 local STAT_TO_WEIGHT_KEY = {
     str = "str", agi = "agi", sta = "sta", int = "int", spi = "spi",
     hp = "sta", mp = "int",
@@ -140,6 +156,21 @@ local function getActiveWeights()
     end
     if not spec or not WS.WEIGHTS[class][spec] then return nil, nil end
     return WS:WeightsWithCaps(WS.WEIGHTS[class][spec], stats), spec
+end
+
+local function appendDeltaFooter(rowKey)
+    if not WS.HasBaseline or not WS:HasBaseline() then return end
+    local statKey = ROW_TO_STAT_KEY[rowKey]
+    if not statKey then return end
+    local d = WS:GetBaselineDelta(statKey)
+    if not d or math.abs(d) < 0.001 then return end
+    GameTooltip:AddLine(" ")
+    local sign = d > 0 and "+" or ""
+    local color = d > 0 and { 0.40, 0.95, 0.55 } or { 0.95, 0.40, 0.40 }
+    local fmt = (math.abs(d) < 1) and "%s%.2f" or "%s%.0f"
+    GameTooltip:AddDoubleLine("Δ since open",
+        string.format(fmt, sign, d),
+        0.7, 0.7, 0.7, color[1], color[2], color[3])
 end
 
 local function appendWeightFooter(rowKey)
@@ -218,6 +249,7 @@ local function attachTooltip(row, fn, rowKey)
             GameTooltip:AddLine(label, 1, 1, 1)
         end
         if hasWeight then appendWeightFooter(rowKey) end
+        appendDeltaFooter(rowKey)
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function(self)
@@ -547,6 +579,19 @@ local function buildPanel()
 
     panel:SetWidth(PANEL_W_DEFAULT)
     panel:SetHeight(200)  -- placeholder, applyLayout sets real height
+
+    -- Live-diff baseline: snapshot on show, clear on hide (unless sticky).
+    panel:HookScript("OnShow", function()
+        if WS.CaptureBaseline and not (WicksStatsSettings.stickyStats and WS:HasBaseline()) then
+            WS:CaptureBaseline()
+        end
+        WS.dirty = true
+    end)
+    panel:HookScript("OnHide", function()
+        if not (WicksStatsSettings and WicksStatsSettings.stickyStats) then
+            if WS.ClearBaseline then WS:ClearBaseline() end
+        end
+    end)
 end
 
 -- ============================================================
@@ -787,6 +832,23 @@ function WS:Render()
             end
         end
     end
+
+    -- Live diff coloring: tint stat values that drifted from the baseline
+    if WS.HasBaseline and WS:HasBaseline() then
+        for rowKey, statKey in pairs(ROW_TO_STAT_KEY) do
+            local row = rows[rowKey]
+            if row then
+                local d = WS:GetBaselineDelta(statKey)
+                if d and math.abs(d) > 0.001 then
+                    if d > 0 then
+                        row.value:SetTextColor(0.40, 0.95, 0.55, 1)  -- bright green
+                    else
+                        row.value:SetTextColor(0.95, 0.40, 0.40, 1)  -- bright red
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- ============================================================
@@ -1006,15 +1068,28 @@ local function buildOptionsWindow()
         row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
         cursor = cursor - ROW_H
 
-        -- Hint text under the toggle
-        local hint = NewText(f, 9, C_TEXT_DIM)
-        hint:SetPoint("TOPLEFT", f, "TOPLEFT", PADDING + 22, cursor)
-        hint:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
-        hint:SetJustifyH("LEFT")
-        hint:SetWordWrap(true)
-        hint:SetText("Adds enabled-but-missing buff gains to your displayed stats.")
-        hint:SetHeight(12)
-        cursor = cursor - 14
+        -- Sticky stats: keep diff baseline across panel close/reopen
+        local stickyRow = CreateOptionsCheckbox(f, "Sticky stats (persist diff baseline)",
+            function() return WicksStatsSettings.stickyStats end,
+            function()
+                WicksStatsSettings.stickyStats = not WicksStatsSettings.stickyStats
+                WS.dirty = true
+            end)
+        stickyRow:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+        stickyRow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        cursor = cursor - ROW_H
+
+        -- Reset baseline button (forces a fresh snapshot now)
+        local resetRow = CreateFrame("Frame", nil, f)
+        resetRow:SetHeight(ROW_H + 2)
+        resetRow:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+        resetRow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        local resetBtn = CreateMiniButton(resetRow, "Reset baseline", function()
+            if WS.CaptureBaseline then WS:CaptureBaseline() end
+            WS.dirty = true
+        end)
+        resetBtn:SetPoint("LEFT", resetRow, "LEFT", 22, 0)
+        cursor = cursor - ROW_H - 4
     end
 
     for _, cat in ipairs(categories) do

@@ -94,6 +94,41 @@ function WS:DiffSnapshot(name)
     return { name = name, ts = snap.ts, diffs = diffs }
 end
 
+-- ============================================================================
+-- Live diff baseline (separate from named snapshots)
+--
+-- Set by UI when the panel opens; consulted each Render to color stat values
+-- green/red. Cleared when the panel closes UNLESS sticky mode is on.
+-- ============================================================================
+
+function WS:CaptureBaseline()
+    if not self.stats then self:Collect() end
+    self._baseline = snapshotFromStats(self.stats)
+end
+
+function WS:ClearBaseline()
+    self._baseline = nil
+end
+
+function WS:HasBaseline()
+    return self._baseline ~= nil
+end
+
+-- Returns the numeric delta (current - baseline) for a stats key, or 0 if
+-- either side is missing or non-numeric.
+function WS:GetBaselineDelta(key)
+    if not self._baseline or not self.stats then return 0 end
+    local b = self._baseline.v[key]
+    local c = self.stats[key]
+    if b == nil or c == nil then return 0 end
+    if type(b) == "table" and type(c) == "table" then
+        return (c.total or 0) - (b.total or 0)
+    elseif type(b) == "number" and type(c) == "number" then
+        return c - b
+    end
+    return 0
+end
+
 -- Slash command handlers (registered from Core.lua)
 function WS:HandleSnapshotCommand(args)
     args = args or ""

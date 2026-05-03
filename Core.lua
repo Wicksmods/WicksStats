@@ -215,6 +215,32 @@ end)
 -- Slash command
 SLASH_WICKSSTATS1 = "/wickstats"
 SLASH_WICKSSTATS2 = "/wstats"
-SlashCmdList.WICKSSTATS = function()
-    if WS.Toggle then WS:Toggle() end
+SlashCmdList.WICKSSTATS = function(input)
+    input = input or ""
+    local cmd, rest = input:match("^(%S*)%s*(.*)$")
+    cmd = (cmd or ""):lower()
+
+    if cmd == "snap" or cmd == "snapshot" then
+        if WS.HandleSnapshotCommand then WS:HandleSnapshotCommand(rest) end
+    elseif cmd == "spec" then
+        local spec = (rest or ""):gsub("^%s*(.-)%s*$", "%1")
+        if spec == "" or spec == "auto" then
+            WicksStatsSettings.specOverride = nil
+            print("|cff4FC778Wick's Stats|r: spec set to auto-detect")
+        else
+            WicksStatsSettings.specOverride = spec
+            print(string.format("|cff4FC778Wick's Stats|r: spec override set to |cffD4C8A1%s|r", spec))
+        end
+        WS.dirty = true
+    elseif cmd == "help" or cmd == "?" then
+        print("|cff4FC778Wick's Stats|r commands:")
+        print("  /wickstats             toggle the panel")
+        print("  /wickstats snap save <name>")
+        print("  /wickstats snap list")
+        print("  /wickstats snap diff <name>")
+        print("  /wickstats snap rm <name>")
+        print("  /wickstats spec <name>|auto")
+    else
+        if WS.Toggle then WS:Toggle() end
+    end
 end

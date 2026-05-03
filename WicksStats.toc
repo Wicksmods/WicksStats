@@ -6,4 +6,7 @@
 ## SavedVariables: WicksStatsSettings
 
 Core.lua
+Weights.lua
+Snapshots.lua
+BuffImpact.lua
 UI.lua

@@ -97,6 +97,67 @@ local function colorBuff(pos, neg)
 end
 
 -- ============================================================
+-- weights: row-key -> weight-table-key mapping + active weights cache
+-- ============================================================
+local STAT_TO_WEIGHT_KEY = {
+    str = "str", agi = "agi", sta = "sta", int = "int", spi = "spi",
+    hp = "sta", mp = "int",
+    ap = "ap", crit = "critRating", hitMelee = "hitRating",
+    expertise = "expRating", haste = "hasteRating",
+    rap = "rap", rcrit = "rcritRating", rhit = "rhitRating", rhaste = "rhasteRating",
+    spMax = "sp", healing = "healing", scrit = "scritRating",
+    shit = "shitRating", shaste = "shasteRating",
+    armor = "armor", defense = "defRating", dodge = "dodgeRating",
+    parry = "parryRating", block = "blockRating", blockValue = "blockValue",
+    resilience = "resilienceRating",
+    mp5out = "mp5", mp5in = "mp5",
+}
+
+local STAT_LABEL = {
+    sp = "Spell Power", healing = "Bonus Healing",
+    int = "Intellect", spi = "Spirit", sta = "Stamina",
+    str = "Strength", agi = "Agility",
+    ap = "Attack Power", rap = "Ranged AP",
+    hitRating = "Hit", rhitRating = "Ranged Hit", shitRating = "Spell Hit",
+    critRating = "Crit", rcritRating = "Ranged Crit", scritRating = "Spell Crit",
+    hasteRating = "Haste", rhasteRating = "Ranged Haste", shasteRating = "Spell Haste",
+    expRating = "Expertise", mp5 = "MP5",
+    armor = "Armor", defRating = "Defense",
+    dodgeRating = "Dodge", parryRating = "Parry", blockRating = "Block",
+    blockValue = "Block Value", resilienceRating = "Resilience",
+}
+
+local function getActiveWeights()
+    local stats = WS.stats
+    if not stats then return nil, nil end
+    local class = WS.playerClass
+    if not class or not WS.WEIGHTS or not WS.WEIGHTS[class] then return nil, nil end
+    local spec = WicksStatsSettings and WicksStatsSettings.specOverride
+    if not spec or not WS.WEIGHTS[class][spec] then
+        spec = WS.DetectSpec and WS:DetectSpec()
+    end
+    if not spec or not WS.WEIGHTS[class][spec] then return nil, nil end
+    return WS:WeightsWithCaps(WS.WEIGHTS[class][spec], stats), spec
+end
+
+local function appendWeightFooter(rowKey)
+    local wkey = STAT_TO_WEIGHT_KEY[rowKey]
+    if not wkey then return end
+    local active = getActiveWeights()
+    if not active then return end
+    local v = active[wkey]
+    if v == nil then return end
+    GameTooltip:AddLine(" ")
+    if v == 0 then
+        GameTooltip:AddDoubleLine("Stat weight", "0.00 (capped)",
+            0.7, 0.7, 0.7, 0.87, 0.45, 0.45)
+    else
+        GameTooltip:AddDoubleLine("Stat weight", string.format("%.2f", v),
+            0.7, 0.7, 0.7, C_GREEN[1], C_GREEN[2], C_GREEN[3])
+    end
+end
+
+-- ============================================================
 -- panel scaffolding
 -- ============================================================
 local panel
@@ -142,15 +203,21 @@ local function CreateSectionHeader(parent, yOffset, title)
     return h
 end
 
-local function attachTooltip(row, fn)
+local function attachTooltip(row, fn, rowKey)
+    local hasWeight = rowKey and STAT_TO_WEIGHT_KEY[rowKey]
+    if not fn and not hasWeight then return end
     row:EnableMouse(true)
     row:SetScript("OnEnter", function(self)
         SetRGBA(self.hover, C_ROW_HOVER)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         if fn then
-            GameTooltip:SetOwner(self, "ANCHOR_LEFT")
             fn()
-            GameTooltip:Show()
+        else
+            local label = row.label and row.label:GetText() or ""
+            GameTooltip:AddLine(label, 1, 1, 1)
         end
+        if hasWeight then appendWeightFooter(rowKey) end
+        GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function(self)
         self.hover:SetColorTexture(0, 0, 0, 0)
@@ -358,6 +425,28 @@ local function buildSpecs()
         R("mp5out", "MP5 (no FSR)")
         R("mp5in",  "MP5 (in FSR)")
     end
+
+    -- WEIGHTS (populated dynamically in Render())
+    S("WEIGHTS")
+    R("specRow", "Spec", function()
+        local _, spec = getActiveWeights()
+        GameTooltip:AddLine("Spec", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        if spec then
+            local label = WS.SPEC_LABELS and WS.SPEC_LABELS[spec] or spec
+            GameTooltip:AddLine(label, C_GREEN[1], C_GREEN[2], C_GREEN[3])
+        else
+            GameTooltip:AddLine("(unknown)", C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3])
+        end
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Override with /wickstats spec <name>", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Reset with /wickstats spec auto", 0.7, 0.7, 0.7)
+    end)
+    for i = 1, 8 do R("weight" .. i, "") end
+
+    -- BUFF IMPACT (missing raid buffs, populated dynamically)
+    S("BUFF IMPACT")
+    for i = 1, 6 do R("buff" .. i, "") end
 end
 
 local function buildPanel()
@@ -428,7 +517,7 @@ local function buildPanel()
                 local y = rowsTop - slot * ROW_H
                 local r = CreateRow(panel, y, col)
                 r.label:SetText(spec.label)
-                if spec.tooltipFn then attachTooltip(r, spec.tooltipFn) end
+                attachTooltip(r, spec.tooltipFn, spec.key)
                 rows[spec.key] = r
             end
             cursor = rowsTop - leftCount * ROW_H
@@ -567,6 +656,118 @@ function WS:Render()
     -- Regen
     setVal("mp5out", fmtInt(s.mp5out))
     setVal("mp5in",  fmtInt(s.mp5in))
+
+    -- WEIGHTS section
+    do
+        local active, spec = getActiveWeights()
+        if rows.specRow then
+            if spec then
+                local label = (WS.SPEC_LABELS and WS.SPEC_LABELS[spec]) or spec
+                rows.specRow.value:SetText(label)
+                rows.specRow.value:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+            else
+                rows.specRow.value:SetText("(unknown)")
+                rows.specRow.value:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+            end
+        end
+        if active then
+            local list = {}
+            for k, v in pairs(active) do
+                if type(v) == "number" and not k:match("^_") and k ~= "primary" then
+                    table.insert(list, { k = k, v = v })
+                end
+            end
+            table.sort(list, function(a, b) return a.v > b.v end)
+            for i = 1, 8 do
+                local row = rows["weight" .. i]
+                if row then
+                    local entry = list[i]
+                    if entry then
+                        local cap = ""
+                        if active._hitCapped  and entry.k == "hitRating"  then cap = " (cap)" end
+                        if active._rhitCapped and entry.k == "rhitRating" then cap = " (cap)" end
+                        if active._shitCapped and entry.k == "shitRating" then cap = " (cap)" end
+                        if active._expCapped  and entry.k == "expRating"  then cap = " (" .. active._expCapped .. " cap)" end
+                        if active._defCapped  and entry.k == "defRating"  then cap = " (uncrit)" end
+                        local label = STAT_LABEL[entry.k] or entry.k
+                        row.label:SetText(label .. cap)
+                        row.value:SetText(string.format("%.2f", entry.v))
+                        if entry.v == 0 then
+                            row.value:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+                        else
+                            row.value:SetTextColor(C_TEXT_NORMAL[1], C_TEXT_NORMAL[2], C_TEXT_NORMAL[3], 1)
+                        end
+                    else
+                        row.label:SetText("")
+                        row.value:SetText("")
+                    end
+                end
+            end
+        else
+            for i = 1, 8 do
+                local row = rows["weight" .. i]
+                if row then row.label:SetText(""); row.value:SetText("") end
+            end
+        end
+    end
+
+    -- BUFF IMPACT section
+    do
+        local missing = (WS.DetectMissingBuffs and WS:DetectMissingBuffs()) or {}
+        if #missing == 0 and rows.buff1 then
+            rows.buff1.label:SetText("All raid buffs active")
+            rows.buff1.value:SetText("")
+            rows.buff1.label:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+            for i = 2, 6 do
+                local row = rows["buff" .. i]
+                if row then row.label:SetText(""); row.value:SetText("") end
+            end
+        else
+            for i = 1, 6 do
+                local row = rows["buff" .. i]
+                if not row then break end
+                local entry = missing[i]
+                if entry then
+                    -- Pick the headline gain (largest single absolute number, prefer primary stats)
+                    local headline
+                    local PRIORITY = { sp = 1, ap = 1, healing = 1, rap = 1,
+                        stats_pct = 2, ap_pct = 2,
+                        sta = 3, str = 3, agi = 3, int = 3, spi = 3,
+                        mp5 = 4, scrit_pct = 4, dmg_pct = 4, allResist = 5,
+                        hitRating = 6, sp_target_pct = 7 }
+                    local bestPri, bestK, bestV = 999, nil, nil
+                    for k, v in pairs(entry.gains) do
+                        local p = PRIORITY[k] or 99
+                        if p < bestPri then bestPri, bestK, bestV = p, k, v end
+                    end
+                    if bestK == "stats_pct" then
+                        headline = "+" .. bestV .. "% stats"
+                    elseif bestK == "ap_pct" then
+                        headline = "+" .. bestV .. "% AP"
+                    elseif bestK == "scrit_pct" then
+                        headline = "+" .. bestV .. "% scrit"
+                    elseif bestK == "dmg_pct" then
+                        headline = "+" .. bestV .. "% dmg"
+                    elseif bestK == "sp_target_pct" then
+                        headline = "+" .. bestV .. "% target SP"
+                    elseif bestK == "allResist" then
+                        headline = "+" .. bestV .. " resist"
+                    elseif bestK then
+                        headline = "+" .. bestV .. " " .. bestK
+                    else
+                        headline = "missing"
+                    end
+                    row.label:SetText(entry.name)
+                    row.label:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+                    row.value:SetText(headline)
+                    row.value:SetTextColor(C_TEXT_NORMAL[1], C_TEXT_NORMAL[2], C_TEXT_NORMAL[3], 1)
+                else
+                    row.label:SetText("")
+                    row.value:SetText("")
+                end
+            end
+        end
+    end
 end
 
 -- ============================================================

@@ -665,6 +665,8 @@ local function buildPanel()
         if not (WicksStatsSettings and WicksStatsSettings.stickyStats) then
             if WS.ClearBaseline then WS:ClearBaseline() end
         end
+        -- Options window is locked to the main panel; hide it too.
+        if optionsFrame then optionsFrame:Hide() end
     end)
 end
 
@@ -856,12 +858,25 @@ function WS:Render()
     do
         local missing = (WS.DetectMissingBuffs and WS:DetectMissingBuffs()) or {}
         if #missing == 0 and rows.buff1 then
-            rows.buff1.label:SetText("All raid buffs active")
+            -- Distinguish "nothing tracked" from "tracked buffs all up"
+            local anyEnabled = false
+            if WicksStatsSettings and WicksStatsSettings.buffsEnabled then
+                for _ in pairs(WicksStatsSettings.buffsEnabled) do
+                    anyEnabled = true; break
+                end
+            end
+            if anyEnabled then
+                rows.buff1.label:SetText("All tracked buffs active")
+                rows.buff1.label:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+            else
+                rows.buff1.label:SetText("No buffs tracked")
+                rows.buff1.label:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
+            end
             rows.buff1.value:SetText("")
-            rows.buff1.label:SetTextColor(C_GREEN[1], C_GREEN[2], C_GREEN[3], 1)
+            rows.buff1._buffData = nil
             for i = 2, 6 do
                 local row = rows["buff" .. i]
-                if row then row.label:SetText(""); row.value:SetText("") end
+                if row then row.label:SetText(""); row.value:SetText(""); row._buffData = nil end
             end
         else
             for i = 1, 6 do
@@ -1032,8 +1047,6 @@ local function buildOptionsWindow()
     local OPT_W = 280
     local f = CreateFrame("Frame", "WicksStatsOptionsFrame", UIParent)
     f:SetFrameStrata("HIGH")
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
     f:SetWidth(OPT_W)
     f:Hide()
 
@@ -1042,19 +1055,11 @@ local function buildOptionsWindow()
     AddBorder(f, C_BORDER)
     AddCornerAccents(f)
 
-    -- Title strip (also drag handle)
+    -- Title strip (locked, no drag — position is anchored to main panel)
     local title = CreateFrame("Frame", nil, f)
     title:SetPoint("TOPLEFT",  f, "TOPLEFT",  1, -1)
     title:SetPoint("TOPRIGHT", f, "TOPRIGHT", -1, -1)
     title:SetHeight(TITLE_H)
-    title:EnableMouse(true)
-    title:RegisterForDrag("LeftButton")
-    title:SetScript("OnDragStart", function() f:StartMoving() end)
-    title:SetScript("OnDragStop", function()
-        f:StopMovingOrSizing()
-        local point, _, relPoint, x, y = f:GetPoint(1)
-        WicksStatsSettings.optionsPos = { point = point, relPoint = relPoint, x = x, y = y }
-    end)
     NewTexture(title, "BACKGROUND", C_HEADER_BG):SetAllPoints()
 
     local tApo = NewText(title, 12, C_GREEN)
@@ -1234,9 +1239,8 @@ function WS:ToggleOptions()
         return
     end
     f:ClearAllPoints()
-    local pos = WicksStatsSettings and WicksStatsSettings.optionsPos
-    if pos and pos.point then
-        f:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    if panel then
+        f:SetPoint("TOPLEFT", panel, "TOPRIGHT", 4, 0)
     else
         f:SetPoint("CENTER", UIParent, "CENTER", 240, 0)
     end

@@ -512,47 +512,6 @@ local function buildPanel()
 
     panel:SetWidth(PANEL_W_DEFAULT)
     panel:SetHeight(200)  -- placeholder, applyLayout sets real height
-
-    -- Resize grip (drag bottom-right corner to scale)
-    local grip = CreateFrame("Frame", nil, panel)
-    grip:SetSize(14, 14)
-    grip:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
-    grip:EnableMouse(true)
-    grip:SetFrameLevel(panel:GetFrameLevel() + 5)
-
-    local hint = grip:CreateTexture(nil, "OVERLAY")
-    hint:SetAllPoints()
-    hint:SetColorTexture(C_GREEN[1], C_GREEN[2], C_GREEN[3], 0)
-
-    grip:SetScript("OnEnter", function()
-        hint:SetColorTexture(C_GREEN[1], C_GREEN[2], C_GREEN[3], 0.30)
-        SetCursor("Interface\\Cursor\\UI-Cursor-Size")
-    end)
-    grip:SetScript("OnLeave", function()
-        hint:SetColorTexture(C_GREEN[1], C_GREEN[2], C_GREEN[3], 0)
-        SetCursor(nil)
-    end)
-    grip:SetScript("OnMouseDown", function(self, button)
-        if button ~= "LeftButton" then return end
-        self._dragging = true
-        self._startW = panel:GetWidth()
-        local mx = GetCursorPosition()
-        self._startMX = mx
-    end)
-    grip:SetScript("OnMouseUp", function(self, button)
-        if not self._dragging then return end
-        self._dragging = false
-        WicksStatsSettings.panelW = panel:GetWidth()
-    end)
-    grip:SetScript("OnUpdate", function(self)
-        if not self._dragging then return end
-        local mx = GetCursorPosition()
-        local uiScale = UIParent:GetEffectiveScale()
-        local dx = (mx - self._startMX) / uiScale
-        local newW = math.max(PANEL_W_MIN, math.min(PANEL_W_MAX, self._startW + dx))
-        panel:SetWidth(newW)
-        applyLayout()
-    end)
 end
 
 -- ============================================================
@@ -845,11 +804,7 @@ function WS:OnLogin()
     buildPanel()
     HookCharacterFrame()
 
-    -- Restore saved width (or use default), then layout the rows for that width
-    local savedW = WicksStatsSettings.panelW
-    if type(savedW) == "number" and savedW >= PANEL_W_MIN and savedW <= PANEL_W_MAX then
-        panel:SetWidth(savedW)
-    end
+    -- Width is fixed; layout fits height to the actual row count
     applyLayout()
 
     self.dirty = true

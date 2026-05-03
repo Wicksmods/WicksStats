@@ -158,6 +158,64 @@ local function getActiveWeights()
     return WS:WeightsWithCaps(WS.WEIGHTS[class][spec], stats), spec
 end
 
+-- Tooltip closures for dynamic rows (weights, buffs). The row's data is set
+-- at render time on row._weightData / row._buffData; tooltip reads it on hover.
+local function weightTooltipFor(rowKey)
+    return function()
+        local row = rows[rowKey]
+        if not row or not row._weightData then return end
+        local d = row._weightData
+        GameTooltip:AddLine(d.label or d.k or "Stat", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("Weight", string.format("%.2f", d.v),
+            0.7, 0.7, 0.7,
+            (d.v == 0) and 0.95 or C_GREEN[1],
+            (d.v == 0) and 0.40 or C_GREEN[2],
+            (d.v == 0) and 0.40 or C_GREEN[3])
+        if d.cap then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(d.cap, 0.7, 0.7, 0.7)
+        end
+    end
+end
+
+local PCT_GAIN_KEYS = {
+    stats_pct = true, ap_pct = true, scrit_pct = true, dmg_pct = true,
+    sp_target_pct = true, holy_dmg_pct = true, dmg_taken_pct = true,
+    threat_pct = true,
+}
+
+local function buffTooltipFor(rowKey)
+    return function()
+        local row = rows[rowKey]
+        if not row or not row._buffData then return end
+        local b = row._buffData
+        GameTooltip:AddLine(b.name, 1, 1, 1)
+        if b.category then
+            GameTooltip:AddLine(b.category, C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3])
+        end
+        GameTooltip:AddLine(" ")
+        for k, v in pairs(b.gains) do
+            local valStr
+            if type(v) == "number" then
+                if PCT_GAIN_KEYS[k] then
+                    valStr = (v >= 0 and "+" or "") .. v .. "%"
+                else
+                    valStr = (v >= 0 and "+" or "") .. v
+                end
+            else
+                valStr = tostring(v)
+            end
+            GameTooltip:AddDoubleLine(k, valStr,
+                0.7, 0.7, 0.7, C_GREEN[1], C_GREEN[2], C_GREEN[3])
+        end
+        if not b._isActive then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("(missing)", 0.95, 0.40, 0.40)
+        end
+    end
+end
+
 local function appendDeltaFooter(rowKey)
     if not WS.HasBaseline or not WS:HasBaseline() then return end
     local statKey = ROW_TO_STAT_KEY[rowKey]
@@ -475,11 +533,17 @@ local function buildSpecs()
         GameTooltip:AddLine("Override with /wickstats spec <name>", 0.7, 0.7, 0.7)
         GameTooltip:AddLine("Reset with /wickstats spec auto", 0.7, 0.7, 0.7)
     end)
-    for i = 1, 8 do R("weight" .. i, "") end
+    for i = 1, 8 do
+        local key = "weight" .. i
+        R(key, "", weightTooltipFor(key))
+    end
 
     -- BUFF IMPACT (missing raid buffs, populated dynamically)
     S("BUFF IMPACT")
-    for i = 1, 6 do R("buff" .. i, "") end
+    for i = 1, 6 do
+        local key = "buff" .. i
+        R(key, "", buffTooltipFor(key))
+    end
 end
 
 local function buildPanel()
@@ -758,11 +822,12 @@ function WS:Render()
                     local entry = list[i]
                     if entry then
                         local cap = ""
-                        if active._hitCapped  and entry.k == "hitRating"  then cap = " (cap)" end
-                        if active._rhitCapped and entry.k == "rhitRating" then cap = " (cap)" end
-                        if active._shitCapped and entry.k == "shitRating" then cap = " (cap)" end
-                        if active._expCapped  and entry.k == "expRating"  then cap = " (" .. active._expCapped .. " cap)" end
-                        if active._defCapped  and entry.k == "defRating"  then cap = " (uncrit)" end
+                        local capDesc
+                        if active._hitCapped  and entry.k == "hitRating"  then cap = " (cap)";    capDesc = "Past melee hit cap (~9% / 142 rating vs lvl 73)." end
+                        if active._rhitCapped and entry.k == "rhitRating" then cap = " (cap)";    capDesc = "Past ranged hit cap." end
+                        if active._shitCapped and entry.k == "shitRating" then cap = " (cap)";    capDesc = "Past spell hit cap." end
+                        if active._expCapped  and entry.k == "expRating"  then cap = " (" .. active._expCapped .. " cap)"; capDesc = "Past expertise " .. active._expCapped .. " cap." end
+                        if active._defCapped  and entry.k == "defRating"  then cap = " (uncrit)"; capDesc = "Past uncrittable cap (defense 490)." end
                         local label = STAT_LABEL[entry.k] or entry.k
                         row.label:SetText(label .. cap)
                         row.value:SetText(string.format("%.2f", entry.v))
@@ -771,9 +836,11 @@ function WS:Render()
                         else
                             row.value:SetTextColor(C_TEXT_NORMAL[1], C_TEXT_NORMAL[2], C_TEXT_NORMAL[3], 1)
                         end
+                        row._weightData = { k = entry.k, v = entry.v, label = label, cap = capDesc }
                     else
                         row.label:SetText("")
                         row.value:SetText("")
+                        row._weightData = nil
                     end
                 end
             end
@@ -835,9 +902,11 @@ function WS:Render()
                     row.label:SetTextColor(C_TEXT_DIM[1], C_TEXT_DIM[2], C_TEXT_DIM[3], 1)
                     row.value:SetText(headline)
                     row.value:SetTextColor(C_TEXT_NORMAL[1], C_TEXT_NORMAL[2], C_TEXT_NORMAL[3], 1)
+                    row._buffData = entry
                 else
                     row.label:SetText("")
                     row.value:SetText("")
+                    row._buffData = nil
                 end
             end
         end
@@ -1011,6 +1080,25 @@ local function buildOptionsWindow()
     end)
     closeBtn:SetScript("OnClick", function() f:Hide() end)
 
+    -- Scrollable body: ScrollFrame + content child. Mouse wheel scrolling, no
+    -- visible scrollbar (Blizzard's default scrollbar texture would clash).
+    local scroll = CreateFrame("ScrollFrame", nil, f)
+    scroll:SetPoint("TOPLEFT",  f, "TOPLEFT",  1, -(TITLE_H + 1))
+    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+    scroll:EnableMouseWheel(true)
+
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(OPT_W - 2, 1)  -- height set after rows are placed
+    scroll:SetScrollChild(content)
+
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local newY = (self:GetVerticalScroll() or 0) - delta * 30
+        local maxY = math.max(0, content:GetHeight() - self:GetHeight())
+        if newY < 0 then newY = 0 end
+        if newY > maxY then newY = maxY end
+        self:SetVerticalScroll(newY)
+    end)
+
     -- Body: group buffs by category
     local categories, byCat = {}, {}
     for _, b in ipairs(WS.BUFFS or {}) do
@@ -1021,15 +1109,15 @@ local function buildOptionsWindow()
         table.insert(byCat[b.category], b)
     end
 
-    local cursor = -(TITLE_H + 4)
+    local cursor = 0
 
     -- Bulk-action row
     cursor = cursor - SECTION_GAP
     do
-        local row = CreateFrame("Frame", nil, f)
+        local row = CreateFrame("Frame", nil, content)
         row:SetHeight(ROW_H + 4)
-        row:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-        row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        row:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+        row:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
 
         local b1 = CreateMiniButton(row, "Match current", function()
             WS:MatchEnabledToCurrent()
@@ -1058,42 +1146,42 @@ local function buildOptionsWindow()
     -- "Simulate raid buffs" master toggle (above category list)
     cursor = cursor - SECTION_GAP
     do
-        local h = CreateFrame("Frame", nil, f)
+        local h = CreateFrame("Frame", nil, content)
         h:SetHeight(SECTION_H)
-        h:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-        h:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        h:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+        h:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
         NewTexture(h, "BACKGROUND", C_HEADER_BG):SetAllPoints()
         local lbl = NewText(h, 10, C_GREEN)
         lbl:SetPoint("LEFT", h, "LEFT", 8, 0)
         lbl:SetText("PREVIEW")
         cursor = cursor - SECTION_H - 2
 
-        local row = CreateOptionsCheckbox(f, "Simulate raid buffs",
+        local row = CreateOptionsCheckbox(content, "Simulate raid buffs",
             function() return WicksStatsSettings.simulateRaidBuffs end,
             function()
                 WicksStatsSettings.simulateRaidBuffs = not WicksStatsSettings.simulateRaidBuffs
                 WS.dirty = true
             end)
-        row:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-        row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        row:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+        row:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
         cursor = cursor - ROW_H
 
         -- Sticky stats: keep diff baseline across panel close/reopen
-        local stickyRow = CreateOptionsCheckbox(f, "Sticky stats (persist diff baseline)",
+        local stickyRow = CreateOptionsCheckbox(content, "Sticky stats (persist diff baseline)",
             function() return WicksStatsSettings.stickyStats end,
             function()
                 WicksStatsSettings.stickyStats = not WicksStatsSettings.stickyStats
                 WS.dirty = true
             end)
-        stickyRow:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-        stickyRow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        stickyRow:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+        stickyRow:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
         cursor = cursor - ROW_H
 
         -- Reset baseline button (forces a fresh snapshot now)
-        local resetRow = CreateFrame("Frame", nil, f)
+        local resetRow = CreateFrame("Frame", nil, content)
         resetRow:SetHeight(ROW_H + 2)
-        resetRow:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-        resetRow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        resetRow:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+        resetRow:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
         local resetBtn = CreateMiniButton(resetRow, "Reset baseline", function()
             if WS.CaptureBaseline then WS:CaptureBaseline() end
             WS.dirty = true
@@ -1105,10 +1193,10 @@ local function buildOptionsWindow()
     for _, cat in ipairs(categories) do
         cursor = cursor - SECTION_GAP
 
-        local h = CreateFrame("Frame", nil, f)
+        local h = CreateFrame("Frame", nil, content)
         h:SetHeight(SECTION_H)
-        h:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-        h:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        h:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+        h:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
         NewTexture(h, "BACKGROUND", C_HEADER_BG):SetAllPoints()
         local lbl = NewText(h, 10, C_GREEN)
         lbl:SetPoint("LEFT", h, "LEFT", 8, 0)
@@ -1117,19 +1205,24 @@ local function buildOptionsWindow()
 
         for _, b in ipairs(byCat[cat]) do
             local buffName = b.name
-            local row = CreateOptionsCheckbox(f, buffName,
+            local row = CreateOptionsCheckbox(content, buffName,
                 function() return WS:IsBuffEnabled(buffName) end,
                 function()
                     WS:SetBuffEnabled(buffName, not WS:IsBuffEnabled(buffName))
                     WS.dirty = true
                 end)
-            row:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
-            row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+            row:SetPoint("TOPLEFT",  content, "TOPLEFT",  PADDING, cursor)
+            row:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PADDING, cursor)
             cursor = cursor - ROW_H
         end
     end
 
-    f:SetHeight(math.abs(cursor) + PADDING)
+    -- Set sizes: content height fits all rows; frame height capped to main panel.
+    local contentH = math.abs(cursor) + PADDING
+    content:SetHeight(contentH)
+    local mainH = (panel and panel:GetHeight()) or 600
+    f:SetHeight(math.min(mainH, contentH + TITLE_H + 4))
+
     optionsFrame = f
     return f
 end

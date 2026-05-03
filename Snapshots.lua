@@ -58,9 +58,11 @@ function WS:ListSnapshots()
     local out = {}
     if not WicksStatsSettings.snapshots then return out end
     for name, snap in pairs(WicksStatsSettings.snapshots) do
-        table.insert(out, { name = name, ts = snap.ts })
+        if snap and snap.ts then
+            table.insert(out, { name = name, ts = snap.ts })
+        end
     end
-    table.sort(out, function(a, b) return a.ts > b.ts end)
+    table.sort(out, function(a, b) return (a.ts or 0) > (b.ts or 0) end)
     return out
 end
 

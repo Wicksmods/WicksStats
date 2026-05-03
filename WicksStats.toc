@@ -2,8 +2,8 @@
 ## Title: Wick's Stats
 ## Notes: Detailed character stat panel docked next to the character frame.
 ## Author: Wick
-## Version: 0.1.0
-## SavedVariables: WicksStatsSettings
+## Version: 0.2.0
+## SavedVariablesPerCharacter: WicksStatsSettings
 
 Core.lua
 Weights.lua

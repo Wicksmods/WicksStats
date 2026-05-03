@@ -540,7 +540,7 @@ local function buildSpecs()
 
     -- BUFF IMPACT (missing raid buffs, populated dynamically)
     S("BUFF IMPACT")
-    for i = 1, 6 do
+    for i = 1, 12 do
         local key = "buff" .. i
         R(key, "", buffTooltipFor(key))
     end
@@ -874,12 +874,12 @@ function WS:Render()
             end
             rows.buff1.value:SetText("")
             rows.buff1._buffData = nil
-            for i = 2, 6 do
+            for i = 2, 12 do
                 local row = rows["buff" .. i]
                 if row then row.label:SetText(""); row.value:SetText(""); row._buffData = nil end
             end
         else
-            for i = 1, 6 do
+            for i = 1, 12 do
                 local row = rows["buff" .. i]
                 if not row then break end
                 local entry = missing[i]

@@ -38,11 +38,14 @@ end
 
 local function attr(idx)
     local _, eff, pos, neg = UnitStat("player", idx)
+    eff = eff or 0
+    pos = pos or 0
+    neg = neg or 0
     return {
-        total   = eff,
-        pos     = pos or 0,
-        neg     = neg or 0,
-        baseGear = eff - (pos or 0) - (neg or 0),
+        total    = eff,
+        pos      = pos,
+        neg      = neg,
+        baseGear = eff - pos - neg,
     }
 end
 

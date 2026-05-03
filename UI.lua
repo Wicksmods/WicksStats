@@ -13,14 +13,16 @@ local C_TEXT_DIM    = { 0.42, 0.35, 0.54, 1 }
 local C_TEXT_NORMAL = { 0.831, 0.784, 0.631, 1 }
 local C_ROW_HOVER   = { 0.310, 0.780, 0.471, 0.06 }
 
-local PANEL_W      = 480
+local PANEL_W_DEFAULT = 720
+local PANEL_W_MIN     = 480
+local PANEL_W_MAX     = 1400
 local TITLE_H      = 28
 local SECTION_H    = 20
 local ROW_H        = 17
 local SECTION_GAP  = 6
 local PADDING      = 8
 local COL_GAP      = 10
-local COL_W        = (PANEL_W - 2 * PADDING - COL_GAP) / 2
+local COL_W_TARGET = 220   -- desired column width; numCols computed from panel width
 
 -- ============================================================
 -- helpers
@@ -164,12 +166,11 @@ local panel
 local rows = {}    -- key -> row frame
 local sections = {}
 
-local function CreateRow(parent, yOffset, col)
-    -- col: 1 = left, 2 = right
+local function CreateRow(parent)
+    -- Position and width are set later by applyLayout()
     local r = CreateFrame("Frame", nil, parent)
-    r:SetSize(COL_W, ROW_H)
-    local xOffset = (col == 2) and (PADDING + COL_W + COL_GAP) or PADDING
-    r:SetPoint("TOPLEFT", parent, "TOPLEFT", xOffset, yOffset)
+    r:SetHeight(ROW_H)
+    r:SetWidth(200)  -- placeholder; applyLayout sets real width
 
     local hover = NewTexture(r, "BACKGROUND")
     hover:SetAllPoints()
@@ -188,10 +189,10 @@ local function CreateRow(parent, yOffset, col)
     return r
 end
 
-local function CreateSectionHeader(parent, yOffset, title)
+local function CreateSectionHeader(parent, title)
+    -- Position is set by applyLayout(); width auto-stretches via TOPLEFT+TOPRIGHT
     local h = CreateFrame("Frame", nil, parent)
-    h:SetSize(PANEL_W - 2 * PADDING, SECTION_H)
-    h:SetPoint("TOPLEFT", parent, "TOPLEFT", PADDING, yOffset)
+    h:SetHeight(SECTION_H)
 
     local bg = NewTexture(h, "BACKGROUND", C_HEADER_BG)
     bg:SetAllPoints()
@@ -495,36 +496,22 @@ local function buildPanel()
     subText:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
     subText:SetText(UnitName("player") or "")
 
-    -- Build sections + 2-column rows
-    local cursor = -(TITLE_H + 4)
+    -- Build all section headers + row frames (positions applied later by applyLayout)
     for _, section in ipairs(sectionSpecs) do
-        cursor = cursor - SECTION_GAP
-        local h = CreateSectionHeader(panel, cursor, section.title)
-        table.insert(sections, h)
-        cursor = cursor - SECTION_H - 2
-
-        local n = #section.rows
-        if n > 0 then
-            local leftCount = math.ceil(n / 2)
-            local rowsTop = cursor
-            for i, spec in ipairs(section.rows) do
-                local col, slot
-                if i <= leftCount then
-                    col, slot = 1, i - 1
-                else
-                    col, slot = 2, i - leftCount - 1
-                end
-                local y = rowsTop - slot * ROW_H
-                local r = CreateRow(panel, y, col)
-                r.label:SetText(spec.label)
-                attachTooltip(r, spec.tooltipFn, spec.key)
-                rows[spec.key] = r
-            end
-            cursor = rowsTop - leftCount * ROW_H
+        local sec = { title = section.title, rowFrames = {} }
+        sec.header = CreateSectionHeader(panel, section.title)
+        for _, spec in ipairs(section.rows) do
+            local r = CreateRow(panel)
+            r.label:SetText(spec.label)
+            attachTooltip(r, spec.tooltipFn, spec.key)
+            rows[spec.key] = r
+            table.insert(sec.rowFrames, r)
         end
+        table.insert(sections, sec)
     end
 
-    panel:SetSize(PANEL_W, math.abs(cursor) + PADDING)
+    panel:SetWidth(PANEL_W_DEFAULT)
+    panel:SetHeight(200)  -- placeholder, applyLayout sets real height
 
     -- Resize grip (drag bottom-right corner to scale)
     local grip = CreateFrame("Frame", nil, panel)
@@ -548,34 +535,68 @@ local function buildPanel()
     grip:SetScript("OnMouseDown", function(self, button)
         if button ~= "LeftButton" then return end
         self._dragging = true
-        self._startScale = panel:GetScale()
         self._startW = panel:GetWidth()
-        self._startH = panel:GetHeight()
-        local mx, my = GetCursorPosition()
-        self._startMX, self._startMY = mx, my
+        local mx = GetCursorPosition()
+        self._startMX = mx
     end)
     grip:SetScript("OnMouseUp", function(self, button)
         if not self._dragging then return end
         self._dragging = false
-        WicksStatsSettings.scale = panel:GetScale()
+        WicksStatsSettings.panelW = panel:GetWidth()
     end)
     grip:SetScript("OnUpdate", function(self)
         if not self._dragging then return end
-        local mx, my = GetCursorPosition()
+        local mx = GetCursorPosition()
         local uiScale = UIParent:GetEffectiveScale()
         local dx = (mx - self._startMX) / uiScale
-        local dy = (self._startMY - my) / uiScale
-        local addX = dx / self._startW
-        local addY = dy / self._startH
-        local add = (addX + addY) / 2
-        local newScale = math.max(0.7, math.min(1.8, self._startScale + add))
-        panel:SetScale(newScale)
+        local newW = math.max(PANEL_W_MIN, math.min(PANEL_W_MAX, self._startW + dx))
+        panel:SetWidth(newW)
+        applyLayout()
     end)
 end
 
 -- ============================================================
 -- render
 -- ============================================================
+-- ============================================================
+-- layout: position section headers and rows for the current panel width
+-- ============================================================
+local function applyLayout()
+    if not panel or #sections == 0 then return end
+    local panelW = panel:GetWidth()
+    local innerW = panelW - 2 * PADDING
+    local numCols = math.max(2, math.floor((innerW + COL_GAP) / (COL_W_TARGET + COL_GAP)))
+    local colW = (innerW - (numCols - 1) * COL_GAP) / numCols
+
+    local cursor = -(TITLE_H + 4)
+    for _, sec in ipairs(sections) do
+        cursor = cursor - SECTION_GAP
+
+        sec.header:ClearAllPoints()
+        sec.header:SetPoint("TOPLEFT",  panel, "TOPLEFT",  PADDING, cursor)
+        sec.header:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -PADDING, cursor)
+        cursor = cursor - SECTION_H - 2
+
+        local n = #sec.rowFrames
+        if n > 0 then
+            local rowsPerCol = math.ceil(n / numCols)
+            for i, rowFrame in ipairs(sec.rowFrames) do
+                local col  = math.ceil(i / rowsPerCol)
+                local slot = (i - 1) % rowsPerCol
+                local x = PADDING + (col - 1) * (colW + COL_GAP)
+                local y = cursor - slot * ROW_H
+                rowFrame:ClearAllPoints()
+                rowFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+                rowFrame:SetWidth(colW)
+            end
+            cursor = cursor - rowsPerCol * ROW_H
+        end
+    end
+
+    panel:SetHeight(math.abs(cursor) + PADDING)
+end
+WS._applyLayout = applyLayout
+
 local function setVal(key, text, r, g, b)
     local row = rows[key]
     if not row then return end
@@ -824,9 +845,12 @@ function WS:OnLogin()
     buildPanel()
     HookCharacterFrame()
 
-    if WicksStatsSettings.scale then
-        panel:SetScale(WicksStatsSettings.scale)
+    -- Restore saved width (or use default), then layout the rows for that width
+    local savedW = WicksStatsSettings.panelW
+    if type(savedW) == "number" and savedW >= PANEL_W_MIN and savedW <= PANEL_W_MAX then
+        panel:SetWidth(savedW)
     end
+    applyLayout()
 
     self.dirty = true
     panel:SetScript("OnUpdate", function(self, elapsed)

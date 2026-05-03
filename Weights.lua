@@ -265,37 +265,79 @@ WS.SPEC_LABELS = {
 }
 
 -- ============================================================================
--- Detect active spec from talent tree (highest-points tab)
+-- Detect active spec from talent tree
+--
+-- GetTalentTabInfo's return order varies between WoW client versions. To stay
+-- robust we scan every returned value: pick the first string that maps to a
+-- known spec NAME, and the first non-negative integer in [0, 71] as points.
 -- ============================================================================
+local NAME_TO_SPEC = {
+    -- Warrior
+    ["Arms"] = "Arms", ["Fury"] = "Fury", ["Protection"] = "Protection",
+    -- Paladin (Protection shares with Warrior; class context disambiguates)
+    ["Holy"] = "Holy", ["Retribution"] = "Retribution",
+    -- Hunter
+    ["Beast Mastery"] = "BeastMastery", ["Marksmanship"] = "Marksmanship",
+    ["Survival"] = "Survival",
+    -- Rogue
+    ["Assassination"] = "Assassination", ["Combat"] = "Combat",
+    ["Subtlety"] = "Subtlety",
+    -- Priest
+    ["Discipline"] = "Discipline", ["Shadow"] = "Shadow",
+    -- Druid
+    ["Balance"] = "Balance", ["Feral Combat"] = "Feral_Cat",
+    ["Feral"] = "Feral_Cat", ["Restoration"] = "Restoration",
+    -- Shaman
+    ["Elemental"] = "Elemental", ["Elemental Combat"] = "Elemental",
+    ["Enhancement"] = "Enhancement",
+    -- Mage
+    ["Arcane"] = "Arcane", ["Fire"] = "Fire", ["Frost"] = "Frost",
+    -- Warlock
+    ["Affliction"] = "Affliction", ["Demonology"] = "Demonology",
+    ["Destruction"] = "Destruction",
+}
+
 function WS:DetectSpec()
     local _, class = UnitClass("player")
     if not class or not WS.WEIGHTS[class] then return nil end
 
     local numTabs = (GetNumTalentTabs and GetNumTalentTabs()) or 3
-    local bestIdx, bestPts = 1, -1
+    local bestSpec, bestPts = nil, -1
     for i = 1, numTabs do
-        local _, _, pts = GetTalentTabInfo(i)
-        if pts and pts > bestPts then
-            bestIdx, bestPts = i, pts
+        local results = { GetTalentTabInfo(i) }
+        if #results > 0 then
+            -- Find the spec name: first string that resolves to a known spec
+            local specKey
+            for _, v in ipairs(results) do
+                if type(v) == "string" then
+                    local s = NAME_TO_SPEC[v]
+                    if s and WS.WEIGHTS[class][s] then
+                        specKey = s
+                        break
+                    end
+                end
+            end
+            -- Druid: NAME_TO_SPEC["Feral Combat"] -> Feral_Cat by default;
+            -- only Feral_Cat is in WS.WEIGHTS[class], so the lookup works.
+            -- The Feral_Bear variant is selected via /wickstats spec override.
+
+            -- Find points spent: first non-negative integer in [0, 71]
+            -- (icons are large file IDs, names are strings)
+            local pts = 0
+            for _, v in ipairs(results) do
+                if type(v) == "number" and v >= 0 and v <= 71 and v == math.floor(v) then
+                    pts = v
+                    break
+                end
+            end
+
+            if specKey and pts > bestPts then
+                bestSpec = specKey
+                bestPts = pts
+            end
         end
     end
-
-    -- Tab order in TBC matches the WoW class trainer order, which is the same
-    -- order we list in SPEC_LIST (with Druid Feral merged at index 2).
-    local SPEC_BY_TAB = {
-        WARRIOR = { "Arms", "Fury", "Protection" },
-        PALADIN = { "Holy", "Protection", "Retribution" },
-        HUNTER  = { "BeastMastery", "Marksmanship", "Survival" },
-        ROGUE   = { "Assassination", "Combat", "Subtlety" },
-        PRIEST  = { "Discipline", "Holy", "Shadow" },
-        DRUID   = { "Balance", "Feral_Cat", "Restoration" },  -- Feral defaults to Cat
-        SHAMAN  = { "Elemental", "Enhancement", "Restoration" },
-        MAGE    = { "Arcane", "Fire", "Frost" },
-        WARLOCK = { "Affliction", "Demonology", "Destruction" },
-    }
-    local list = SPEC_BY_TAB[class]
-    if not list then return nil end
-    return list[bestIdx] or list[1]
+    return bestSpec
 end
 
 -- ============================================================================

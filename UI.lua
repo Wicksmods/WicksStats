@@ -468,9 +468,14 @@ local function buildPanel()
     title:SetHeight(TITLE_H)
     NewTexture(title, "BACKGROUND", C_HEADER_BG):SetAllPoints()
 
-    local tText = NewText(title, 12, C_GREEN)
-    tText:SetPoint("LEFT", title, "LEFT", 10, 0)
-    tText:SetText("WICK'S STATS")
+    -- Two-tone title: "Wick's" fel-green, "Stats" cream. Matches BIS/CD chrome.
+    local tApo = NewText(title, 12, C_GREEN)
+    tApo:SetPoint("LEFT", title, "LEFT", 10, 0)
+    tApo:SetText("Wick's")
+
+    local tName = NewText(title, 12, C_TEXT_NORMAL)
+    tName:SetPoint("LEFT", tApo, "RIGHT", 4, 0)
+    tName:SetText("Stats")
 
     -- Close (X) button
     local closeBtn = CreateFrame("Button", nil, title)

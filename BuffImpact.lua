@@ -1,49 +1,89 @@
 -- Wick's Stats
 -- BuffImpact.lua: detect missing common raid buffs and estimate stat gain
 --
--- For each buff we track: the spell's primary buff name (to scan UnitAura),
--- and a per-stat gain estimate at level 70 with typical talents.
---
--- Heuristic only: actual impact varies with talents (e.g., Improved Mark of
--- the Wild multiplier), but the lookup gives a useful "what am I missing"
--- nudge without scanning every aura on the player.
+-- Each buff has an optional `group` (mutually-exclusive variants share a
+-- group; e.g., Mark of the Wild and Gift of the Wild) and a `category`
+-- (used by the options UI for grouping). The detector treats group
+-- membership as the dedupe key: if any member of a group is active, the
+-- whole group is "covered". If a whole group is missing, only the FIRST
+-- entry in the table for that group is reported.
 
 local WS = WicksStats
 
--- Each entry: name (aura name to match), short label, role (raid|class), and
--- a `gains` table of { statKey = approxAmount } for the typical max-rank buff.
--- We only include the most common raid-wide buffs; class-specific party buffs
--- (e.g., Power Word: Fortitude vs. Prayer of Fortitude) are unified by name.
 WS.BUFFS = {
-    { name = "Mark of the Wild",      gains = { str = 14, agi = 14, sta = 14, int = 14, spi = 14, allResist = 25 } },
-    { name = "Gift of the Wild",      gains = { str = 14, agi = 14, sta = 14, int = 14, spi = 14, allResist = 25 } },
-    { name = "Power Word: Fortitude", gains = { sta = 79 } },
-    { name = "Prayer of Fortitude",   gains = { sta = 79 } },
-    { name = "Divine Spirit",         gains = { spi = 50 } },
-    { name = "Prayer of Spirit",      gains = { spi = 50 } },
-    { name = "Arcane Intellect",      gains = { int = 40 } },
-    { name = "Arcane Brilliance",     gains = { int = 40 } },
-    { name = "Blessing of Kings",     gains = { stats_pct = 10 } },
-    { name = "Blessing of Might",     gains = { ap = 220 } },
-    { name = "Greater Blessing of Might", gains = { ap = 220 } },
-    { name = "Blessing of Wisdom",    gains = { mp5 = 41 } },
-    { name = "Greater Blessing of Wisdom", gains = { mp5 = 41 } },
-    { name = "Battle Shout",          gains = { ap = 305 } },
-    { name = "Trueshot Aura",         gains = { ap = 125 } },
-    { name = "Unleashed Rage",        gains = { ap_pct = 10 } },
-    { name = "Strength of Earth",     gains = { str = 86 } },  -- Cyclone totem rank
-    { name = "Grace of Air",          gains = { agi = 77 } },
-    { name = "Wrath of Air",          gains = { sp = 101 } },
-    { name = "Totem of Wrath",        gains = { sp = 101, scrit_pct = 3 } },
-    { name = "Mana Spring",           gains = { mp5 = 50 } },
-    { name = "Moonkin Aura",          gains = { scrit_pct = 5 } },
-    { name = "Inspiring Presence",    gains = { shitRating = 65 } },  -- Imp DM
-    { name = "Ferocious Inspiration", gains = { dmg_pct = 3 } },
-    { name = "Heroic Presence",       gains = { hitRating = 16 } },   -- Draenei racial-effect aura
-    { name = "Misery",                gains = { sp_target_pct = 5 } }, -- target debuff
+    -- Druid
+    { name = "Gift of the Wild",          group = "wild",   category = "Druid",   gains = { str = 14, agi = 14, sta = 14, int = 14, spi = 14, allResist = 25 } },
+    { name = "Mark of the Wild",          group = "wild",   category = "Druid",   gains = { str = 14, agi = 14, sta = 14, int = 14, spi = 14, allResist = 25 } },
+    { name = "Moonkin Aura",              category = "Druid",   gains = { scrit_pct = 5 } },
+    { name = "Tree of Life",              category = "Druid",   gains = { healing_aura = "+25% healing recv" } },
+
+    -- Priest
+    { name = "Prayer of Fortitude",       group = "fort",   category = "Priest",  gains = { sta = 79 } },
+    { name = "Power Word: Fortitude",     group = "fort",   category = "Priest",  gains = { sta = 79 } },
+    { name = "Prayer of Spirit",          group = "spirit", category = "Priest",  gains = { spi = 50 } },
+    { name = "Divine Spirit",             group = "spirit", category = "Priest",  gains = { spi = 50 } },
+
+    -- Mage
+    { name = "Arcane Brilliance",         group = "int",    category = "Mage",    gains = { int = 40 } },
+    { name = "Arcane Intellect",          group = "int",    category = "Mage",    gains = { int = 40 } },
+
+    -- Paladin (blessings)
+    { name = "Greater Blessing of Kings", group = "kings",  category = "Paladin", gains = { stats_pct = 10 } },
+    { name = "Blessing of Kings",         group = "kings",  category = "Paladin", gains = { stats_pct = 10 } },
+    { name = "Greater Blessing of Might", group = "might",  category = "Paladin", gains = { ap = 220 } },
+    { name = "Blessing of Might",         group = "might",  category = "Paladin", gains = { ap = 220 } },
+    { name = "Greater Blessing of Wisdom", group = "wisdom", category = "Paladin", gains = { mp5 = 41 } },
+    { name = "Blessing of Wisdom",        group = "wisdom", category = "Paladin", gains = { mp5 = 41 } },
+    { name = "Greater Blessing of Salvation", group = "salv", category = "Paladin", gains = { threat_pct = -30 } },
+    { name = "Blessing of Salvation",     group = "salv",   category = "Paladin", gains = { threat_pct = -30 } },
+    { name = "Greater Blessing of Sanctuary", group = "sanc", category = "Paladin", gains = { dmg_taken_pct = -3 } },
+    { name = "Blessing of Sanctuary",     group = "sanc",   category = "Paladin", gains = { dmg_taken_pct = -3 } },
+    -- Paladin auras
+    { name = "Devotion Aura",             category = "Paladin", gains = { armor = 1205 } },
+    { name = "Retribution Aura",          category = "Paladin", gains = { ret_dmg = "passive holy dmg" } },
+    { name = "Sanctity Aura",             category = "Paladin", gains = { holy_dmg_pct = 10 } },
+
+    -- Warrior
+    { name = "Battle Shout",              category = "Warrior", gains = { ap = 305 } },
+    { name = "Commanding Shout",          category = "Warrior", gains = { hp = 1080 } },
+
+    -- Hunter
+    { name = "Trueshot Aura",             category = "Hunter",  gains = { ap = 125 } },
+    { name = "Ferocious Inspiration",     category = "Hunter",  gains = { dmg_pct = 3 } },
+
+    -- Shaman
+    { name = "Strength of Earth",         category = "Shaman",  gains = { str = 86 } },
+    { name = "Grace of Air",              category = "Shaman",  gains = { agi = 77 } },
+    { name = "Windfury Totem",            category = "Shaman",  gains = { wf_haste = "WF procs" } },
+    { name = "Wrath of Air Totem",        category = "Shaman",  gains = { sp = 101 } },
+    { name = "Totem of Wrath",            category = "Shaman",  gains = { sp = 101, scrit_pct = 3 } },
+    { name = "Mana Spring Totem",         category = "Shaman",  gains = { mp5 = 50 } },
+    { name = "Unleashed Rage",            category = "Shaman",  gains = { ap_pct = 10 } },
+
+    -- Racial
+    { name = "Heroic Presence",           category = "Other",   gains = { hitRating = 16 } },
+
+    -- Target debuffs that affect player damage (informational)
+    { name = "Misery",                    category = "Debuffs", gains = { sp_target_pct = 5 } },
 }
 
--- Returns a list of { name, gains } for buffs the player does NOT currently have.
+function WS:IsBuffEnabled(name)
+    if not WicksStatsSettings then return true end
+    local d = WicksStatsSettings.buffsDisabled
+    if not d then return true end
+    return not d[name]
+end
+
+function WS:SetBuffEnabled(name, enabled)
+    WicksStatsSettings = WicksStatsSettings or {}
+    WicksStatsSettings.buffsDisabled = WicksStatsSettings.buffsDisabled or {}
+    if enabled then
+        WicksStatsSettings.buffsDisabled[name] = nil
+    else
+        WicksStatsSettings.buffsDisabled[name] = true
+    end
+end
+
 function WS:DetectMissingBuffs()
     local active = {}
     for i = 1, 40 do
@@ -52,24 +92,24 @@ function WS:DetectMissingBuffs()
         active[name] = true
     end
 
-    local missing = {}
-    -- Collapse buff variants (e.g., MotW vs GotW) - if the player has any
-    -- variant, treat the whole group as covered. Group by primary stat
-    -- signature.
-    local covered = {}
+    -- A group is covered if ANY of its members is active
+    local activeGroups = {}
     for _, b in ipairs(WS.BUFFS) do
-        if active[b.name] then
-            for k in pairs(b.gains) do covered[k] = true end
+        if active[b.name] and b.group then
+            activeGroups[b.group] = true
         end
     end
+
+    local seenGroups = {}
+    local missing = {}
     for _, b in ipairs(WS.BUFFS) do
-        if not active[b.name] then
-            -- Only flag if no other buff already covers all of its gains
-            local stillMissing = false
-            for k in pairs(b.gains) do
-                if not covered[k] then stillMissing = true; break end
-            end
-            if stillMissing then
+        if not active[b.name] and self:IsBuffEnabled(b.name) then
+            if b.group then
+                if not activeGroups[b.group] and not seenGroups[b.group] then
+                    seenGroups[b.group] = true
+                    table.insert(missing, b)
+                end
+            else
                 table.insert(missing, b)
             end
         end

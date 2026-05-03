@@ -84,6 +84,110 @@ function WS:SetBuffEnabled(name, enabled)
     end
 end
 
+-- Apply enabled-but-missing raid buffs to a stats table in place. Used to
+-- preview "what would my stats look like fully buffed" without needing the
+-- raid composition to actually apply them.
+--
+-- Two passes:
+--   1. Additive gains (raw stat boosts, ratings, hp/mp deltas)
+--   2. Percentage multipliers (Blessing of Kings, Unleashed Rage)
+function WS:SimulateRaidBuffs(s)
+    if not s then return end
+    local missing = self:DetectMissingBuffs()
+
+    local function bumpAttr(key, amt)
+        local a = s[key]; if not a or type(amt) ~= "number" then return end
+        a.total    = (a.total or 0) + amt
+        a.pos      = (a.pos or 0) + amt
+        a.baseGear = (a.baseGear or 0)  -- unchanged; sim contributes via pos
+    end
+
+    -- Pass 1: additive
+    for _, b in ipairs(missing) do
+        for stat, gain in pairs(b.gains) do
+            if type(gain) == "number" then
+                if stat == "str" or stat == "agi" or stat == "sta" or stat == "int" or stat == "spi" then
+                    bumpAttr(stat, gain)
+                elseif stat == "ap" then
+                    s.ap = (s.ap or 0) + gain
+                    s.apPos = (s.apPos or 0) + gain
+                elseif stat == "rap" then
+                    s.rap = (s.rap or 0) + gain
+                    s.rapPos = (s.rapPos or 0) + gain
+                elseif stat == "sp" then
+                    s.spHoly   = (s.spHoly or 0) + gain
+                    s.spFire   = (s.spFire or 0) + gain
+                    s.spNature = (s.spNature or 0) + gain
+                    s.spFrost  = (s.spFrost or 0) + gain
+                    s.spShadow = (s.spShadow or 0) + gain
+                    s.spArcane = (s.spArcane or 0) + gain
+                elseif stat == "healing" then
+                    s.healing = (s.healing or 0) + gain
+                elseif stat == "mp5" then
+                    s.mp5out = (s.mp5out or 0) + gain
+                    s.mp5in  = (s.mp5in or 0) + gain
+                elseif stat == "hp" then
+                    s.hp = (s.hp or 0) + gain
+                elseif stat == "scrit_pct" then
+                    s.scrit       = (s.scrit or 0) + gain
+                    s.scritHoly   = (s.scritHoly or 0) + gain
+                    s.scritFire   = (s.scritFire or 0) + gain
+                    s.scritNature = (s.scritNature or 0) + gain
+                    s.scritFrost  = (s.scritFrost or 0) + gain
+                    s.scritShadow = (s.scritShadow or 0) + gain
+                    s.scritArcane = (s.scritArcane or 0) + gain
+                elseif stat == "armor" then
+                    s.armor = (s.armor or 0) + gain
+                    s.armorReduction = (s.armor / (s.armor + 11960)) * 100
+                elseif stat == "allResist" then
+                    s.resHoly   = (s.resHoly or 0) + gain
+                    s.resFire   = (s.resFire or 0) + gain
+                    s.resNature = (s.resNature or 0) + gain
+                    s.resFrost  = (s.resFrost or 0) + gain
+                    s.resShadow = (s.resShadow or 0) + gain
+                    s.resArcane = (s.resArcane or 0) + gain
+                elseif stat == "hitRating" then
+                    s.hitMeleeRating = (s.hitMeleeRating or 0) + gain
+                    s.rhitRating     = (s.rhitRating or 0) + gain
+                    s.shitRating     = (s.shitRating or 0) + gain
+                    -- approximate percentage update (~15.77 rating per 1%)
+                    s.hitMelee = (s.hitMelee or 0) + gain / 15.77
+                    s.rhit     = (s.rhit or 0) + gain / 15.77
+                    s.shit     = (s.shit or 0) + gain / 12.61
+                end
+            end
+        end
+    end
+
+    -- Pass 2: percentage multipliers (after additive so they compound correctly)
+    for _, b in ipairs(missing) do
+        for stat, gain in pairs(b.gains) do
+            if type(gain) == "number" then
+                if stat == "stats_pct" then
+                    local mul = 1 + gain / 100
+                    for _, k in ipairs({"str","agi","sta","int","spi"}) do
+                        local a = s[k]
+                        if a then
+                            local extra = math.floor((a.total or 0) * (mul - 1) + 0.5)
+                            a.total = a.total + extra
+                            a.pos   = a.pos + extra
+                        end
+                    end
+                    s.hp = math.floor((s.hp or 0) * mul + 0.5)
+                    s.mp = math.floor((s.mp or 0) * mul + 0.5)
+                elseif stat == "ap_pct" then
+                    local mul = 1 + gain / 100
+                    local extra = math.floor((s.ap or 0) * (mul - 1) + 0.5)
+                    s.ap = (s.ap or 0) + extra
+                    s.apPos = (s.apPos or 0) + extra
+                end
+            end
+        end
+    end
+
+    s._simulated = true
+end
+
 function WS:DetectMissingBuffs()
     local active = {}
     for i = 1, 40 do

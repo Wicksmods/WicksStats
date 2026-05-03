@@ -521,8 +521,15 @@ local function buildPanel()
     end)
 
     local subText = NewText(title, 9, C_TEXT_DIM)
-    subText:SetPoint("RIGHT", closeBtn, "LEFT", -4, 0)
+    subText:SetPoint("RIGHT", optBtn, "LEFT", -4, 0)
     subText:SetText(UnitName("player") or "")
+
+    -- "[sim]" tag visible only when raid-buff simulation is on
+    local simTag = NewText(title, 9, C_GREEN)
+    simTag:SetPoint("RIGHT", subText, "LEFT", -6, 0)
+    simTag:SetText("[sim]")
+    simTag:Hide()
+    panel._simTag = simTag
 
     -- Build all section headers + row frames (positions applied later by applyLayout)
     for _, section in ipairs(sectionSpecs) do
@@ -603,6 +610,10 @@ end
 function WS:Render()
     if not panel then return end
     local s = self:Collect()
+
+    if panel._simTag then
+        if s._simulated then panel._simTag:Show() else panel._simTag:Hide() end
+    end
 
     setAttrVal("str")
     setAttrVal("agi")
@@ -890,6 +901,41 @@ local function buildOptionsWindow()
     end
 
     local cursor = -(TITLE_H + 4)
+
+    -- "Simulate raid buffs" master toggle (above category list)
+    cursor = cursor - SECTION_GAP
+    do
+        local h = CreateFrame("Frame", nil, f)
+        h:SetHeight(SECTION_H)
+        h:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+        h:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        NewTexture(h, "BACKGROUND", C_HEADER_BG):SetAllPoints()
+        local lbl = NewText(h, 10, C_GREEN)
+        lbl:SetPoint("LEFT", h, "LEFT", 8, 0)
+        lbl:SetText("PREVIEW")
+        cursor = cursor - SECTION_H - 2
+
+        local row = CreateOptionsCheckbox(f, "Simulate raid buffs",
+            function() return WicksStatsSettings.simulateRaidBuffs end,
+            function()
+                WicksStatsSettings.simulateRaidBuffs = not WicksStatsSettings.simulateRaidBuffs
+                WS.dirty = true
+            end)
+        row:SetPoint("TOPLEFT",  f, "TOPLEFT",  PADDING, cursor)
+        row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        cursor = cursor - ROW_H
+
+        -- Hint text under the toggle
+        local hint = NewText(f, 9, C_TEXT_DIM)
+        hint:SetPoint("TOPLEFT", f, "TOPLEFT", PADDING + 22, cursor)
+        hint:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PADDING, cursor)
+        hint:SetJustifyH("LEFT")
+        hint:SetWordWrap(true)
+        hint:SetText("Adds enabled-but-missing buff gains to your displayed stats.")
+        hint:SetHeight(12)
+        cursor = cursor - 14
+    end
+
     for _, cat in ipairs(categories) do
         cursor = cursor - SECTION_GAP
 

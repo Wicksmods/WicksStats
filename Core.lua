@@ -165,6 +165,11 @@ function WS:Collect()
     s.mp5out = (oFSR or 0) * 5
     s.mp5in  = (iFSR or 0) * 5
 
+    -- Apply simulated raid buffs if the toggle is on (mutates s in place)
+    if WicksStatsSettings and WicksStatsSettings.simulateRaidBuffs and self.SimulateRaidBuffs then
+        self:SimulateRaidBuffs(s)
+    end
+
     self.stats = s
     return s
 end

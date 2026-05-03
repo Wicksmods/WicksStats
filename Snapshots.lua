@@ -101,9 +101,20 @@ end
 -- green/red. Cleared when the panel closes UNLESS sticky mode is on.
 -- ============================================================================
 
+local function captureActiveBuffs()
+    local set = {}
+    for i = 1, 40 do
+        local name = UnitBuff("player", i)
+        if not name then break end
+        set[name] = true
+    end
+    return set
+end
+
 function WS:CaptureBaseline()
     if not self.stats then self:Collect() end
     self._baseline = snapshotFromStats(self.stats)
+    self._baseline.buffs = captureActiveBuffs()
 end
 
 function WS:ClearBaseline()
@@ -112,6 +123,23 @@ end
 
 function WS:HasBaseline()
     return self._baseline ~= nil
+end
+
+-- Used by sticky mode: returns true if the player's currently-active buff
+-- name set has drifted enough from the baseline's buff set that the existing
+-- baseline would mostly show buff loss/gain rather than gear diffs. Threshold
+-- is 3 buffs added/removed combined.
+function WS:ShouldRefreshBaselineForBuffs()
+    if not self._baseline or not self._baseline.buffs then return false end
+    local cur = captureActiveBuffs()
+    local diff = 0
+    for n in pairs(self._baseline.buffs) do
+        if not cur[n] then diff = diff + 1 end
+    end
+    for n in pairs(cur) do
+        if not self._baseline.buffs[n] then diff = diff + 1 end
+    end
+    return diff >= 3
 end
 
 -- Returns the numeric delta (current - baseline) for a stats key, or 0 if

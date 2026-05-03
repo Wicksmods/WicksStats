@@ -581,9 +581,19 @@ local function buildPanel()
     panel:SetHeight(200)  -- placeholder, applyLayout sets real height
 
     -- Live-diff baseline: snapshot on show, clear on hide (unless sticky).
+    -- Sticky mode keeps the baseline across opens, BUT auto-refreshes if the
+    -- player's active buffs have meaningfully changed (so a "stale" baseline
+    -- captured under raid buffs doesn't make solo state look like a regression).
     panel:HookScript("OnShow", function()
-        if WS.CaptureBaseline and not (WicksStatsSettings.stickyStats and WS:HasBaseline()) then
-            WS:CaptureBaseline()
+        if WS.CaptureBaseline then
+            local sticky = WicksStatsSettings and WicksStatsSettings.stickyStats
+            if not sticky then
+                WS:CaptureBaseline()
+            elseif not WS:HasBaseline() then
+                WS:CaptureBaseline()
+            elseif WS.ShouldRefreshBaselineForBuffs and WS:ShouldRefreshBaselineForBuffs() then
+                WS:CaptureBaseline()
+            end
         end
         WS.dirty = true
     end)

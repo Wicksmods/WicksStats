@@ -1,5 +1,13 @@
 # Wick's Stats - Changelog
 
+## 0.2.1 - 2026-05-22
+
+### Resilience and crit reduction fixes
+
+Fixed resilience rating always showing 0 due to an incorrect combat rating constant. The correct API constant (`COMBAT_RATING_RESILIENCE_CRIT_TAKEN`) is now used.
+
+Added a Crit Reduction row to the Defenses section. The value combines resilience crit reduction and the contribution from defense skill above 350 (0.04% per point). Hovering the row shows the breakdown.
+
 ## 0.2.0 - 2026-05-03
 
 ### Buff Impact Preview

@@ -147,9 +147,12 @@ function WS:Collect()
     s.blockRating = safeCall(GetCombatRating, CR_BLOCK)
     s.blockValue = safeCall(GetShieldBlock)
 
-    -- Resilience: TBC ties to CR_CRIT_TAKEN_*; we use melee as the canonical resilience number
-    s.resilienceRating  = safeCall(GetCombatRating, CR_CRIT_TAKEN_MELEE)
-    s.resilienceCritReduce = safeCall(GetCombatRatingBonus, CR_CRIT_TAKEN_MELEE)
+    local CR_RESIL = COMBAT_RATING_RESILIENCE_CRIT_TAKEN or CR_RESILIENCE_CRIT_TAKEN
+    s.resilienceRating     = safeCall(GetCombatRating, CR_RESIL)
+    s.resilienceCritReduce = safeCall(GetCombatRatingBonus, CR_RESIL)
+    -- Each defense point above 350 (level 70 base) reduces enemy crit chance by 0.04%
+    local defCritReduce = math.max(0, s.defense - 350) * 0.04
+    s.critReduction = s.resilienceCritReduce + defCritReduce
 
     -- Resistances (UnitResistance school: 1=Holy 2=Fire 3=Nature 4=Frost 5=Shadow 6=Arcane)
     local function resAt(idx)

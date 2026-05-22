@@ -497,8 +497,19 @@ local function buildSpecs()
         local s = WS.stats; if not s then return end
         GameTooltip:AddLine("Resilience", 1, 1, 1)
         GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine("Rating",       fmtInt(s.resilienceRating),     1, 1, 1, C_GREEN[1], C_GREEN[2], C_GREEN[3])
-        GameTooltip:AddDoubleLine("Crit reduction", fmtPct(s.resilienceCritReduce), 0.7, 0.7, 0.7, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Rating",         fmtInt(s.resilienceRating),       1, 1, 1, C_GREEN[1], C_GREEN[2], C_GREEN[3])
+        GameTooltip:AddDoubleLine("Crit reduction", fmtPct(s.resilienceCritReduce),   0.7, 0.7, 0.7, 1, 1, 1)
+    end)
+    R("resilienceCritReduce", "Crit Reduction", function()
+        local s = WS.stats; if not s then return end
+        GameTooltip:AddLine("Crit Reduction", 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("Total",          fmtPct(s.critReduction),          1, 1, 1, C_GREEN[1], C_GREEN[2], C_GREEN[3])
+        GameTooltip:AddDoubleLine("From resilience", fmtPct(s.resilienceCritReduce),  0.7, 0.7, 0.7, 1, 1, 1)
+        local defContrib = math.max(0, s.defense - 350) * 0.04
+        GameTooltip:AddDoubleLine("From defense",   fmtPct(defContrib),               0.7, 0.7, 0.7, 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Defense above 350 = 0.04% per point", 0.7, 0.7, 0.7)
     end)
 
     -- RESISTANCES
@@ -783,7 +794,8 @@ function WS:Render()
     setVal("parry",      fmtPct(s.parry))
     setVal("block",      fmtPct(s.block))
     setVal("blockValue", fmtInt(s.blockValue))
-    setVal("resilience", fmtInt(s.resilienceRating))
+    setVal("resilience",           fmtInt(s.resilienceRating))
+    setVal("resilienceCritReduce", fmtPct(s.critReduction))
 
     -- Resistances
     setVal("resHoly",   fmtInt(s.resHoly))

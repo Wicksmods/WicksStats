@@ -158,6 +158,11 @@ local function getActiveWeights()
     return WS:WeightsWithCaps(WS.WEIGHTS[class][spec], stats), spec
 end
 
+-- Forward-declared here (assigned in the panel-scaffolding block below) so the
+-- tooltip closures defined next capture them as upvalues. Without this they
+-- would bind to a nil global `rows` and error on hover.
+local panel, rows, sections
+
 -- Tooltip closures for dynamic rows (weights, buffs). The row's data is set
 -- at render time on row._weightData / row._buffData; tooltip reads it on hover.
 local function weightTooltipFor(rowKey)
@@ -251,9 +256,9 @@ end
 -- ============================================================
 -- panel scaffolding
 -- ============================================================
-local panel
-local rows = {}    -- key -> row frame
-local sections = {}
+-- panel/rows/sections are forward-declared above the tooltip closures.
+rows = {}        -- key -> row frame
+sections = {}
 
 local function CreateRow(parent)
     -- Position and width are set later by applyLayout()

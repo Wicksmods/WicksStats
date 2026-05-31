@@ -1,5 +1,11 @@
 # Wick's Stats - Changelog
 
+## 0.2.2 - 2026-05-31
+
+### Fix: stat weight and buff tooltips errored on hover
+
+The weight and buff row tooltip handlers referenced the `rows` table before it was declared, so they bound to a nil global and threw an error every time you hovered one of those rows. The table is now forward-declared above the tooltip closures, so hovering weight and buff rows shows the breakdown as intended.
+
 ## 0.2.1 - 2026-05-22
 
 ### Resilience and crit reduction fixes
